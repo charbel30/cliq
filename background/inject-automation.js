@@ -1,12 +1,20 @@
 // This script will be injected directly into the page
 // It doesn't rely on messaging or chrome.runtime APIs
 
-function injectAndRunAutomation() {
-  console.log("Injected automation script running");
+function injectAndRunAutomation(type = "full", continuous = true) {
+  console.log(`Injected automation script running (type: ${type}, continuous: ${continuous})`);
   
-  // Define a function to check if startAutomation exists and run it
+  // Define a function to check if the automation functions exist and run the appropriate one
   function checkAndRunAutomation() {
-    if (typeof window.startAutomation === 'function') {
+    if (type === "personalInfo" && typeof window.startPersonalInfo === 'function') {
+      console.log("Found startPersonalInfo function, executing it");
+      window.startPersonalInfo();
+      return true;
+    } else if (type === "appointmentSearch" && typeof window.startAppointmentSearch === 'function') {
+      console.log("Found startAppointmentSearch function, executing it");
+      window.startAppointmentSearch(continuous);
+      return true;
+    } else if (typeof window.startAutomation === 'function') {
       console.log("Found startAutomation function, executing it");
       window.startAutomation();
       return true;
@@ -32,12 +40,12 @@ function injectAndRunAutomation() {
   
   function attemptWithDelay() {
     if (attempts >= maxAttempts) {
-      console.error(`Failed to find startAutomation function after ${maxAttempts} attempts`);
+      console.error(`Failed to find automation functions after ${maxAttempts} attempts`);
       return;
     }
     
     attempts++;
-    console.log(`Attempt ${attempts}/${maxAttempts} to find startAutomation function`);
+    console.log(`Attempt ${attempts}/${maxAttempts} to find automation functions`);
     
     if (!checkAndRunAutomation()) {
       // Try again after a delay
