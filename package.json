@@ -10,6 +10,7 @@
     "package": "plasmo package"
   },
   "dependencies": {
+    "@plasmohq/messaging": "^0.7.1",
     "plasmo": "0.90.3",
     "react": "18.2.0",
     "react-dom": "18.2.0"
@@ -24,9 +25,20 @@
     "typescript": "5.3.3"
   },
   "manifest": {
-    "permissions": ["scripting"],
+    "permissions": [
+      "scripting",
+      "activeTab",
+      "tabs"
+    ],
     "host_permissions": [
       "https://*/*"
-    ]
+    ],
+    "content_security_policy": {
+      "extension_pages": "script-src 'self' http://localhost:* http://127.0.0.1:*; object-src 'self'; connect-src 'self' ws://localhost:* ws://127.0.0.1:* https://www.google-analytics.com/"
+    },
+    "web_accessible_resources": [{
+      "resources": ["content-script.js", "assets/inject-automation.js"],
+      "matches": ["https://rvsq.gouv.qc.ca/*"]
+    }]
   }
 }

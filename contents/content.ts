@@ -1,26 +1,23 @@
 import type { PlasmoCSConfig } from "plasmo"
 
 export const config: PlasmoCSConfig = {
-  matches: [
-    "https://rvsq.gouv.qc.ca/prendrerendezvous/Principale.aspx?culture=fr",
-    "https://rvsq.gouv.qc.ca/accueil/index.html",
-    "https://rvsq.gouv.qc.ca/prendrerendezvous/Principale.aspx?/*"
-  ],
+  matches: ["https://rvsq.gouv.qc.ca/*"],
   all_frames: true,
   world: "MAIN"
 }
+
 // Automatically runs when the specified pages are loaded
 // Fills in personal information (first name, last name, health insurance number, etc.)
 // Continues to the next page, fills search parameters, and searches for available appointments
 
 const AUTOMATION_CONFIG = {
   appointmentData: {
-    firstName: "John",
-    lastName: "Doe",
-    healthInsuranceNumber: "ABCD12345678",
-    sequentialNumber: "01",
-    dateOfBirth: "1990-01-01",
-    postalCode: "H2X 1Y2",
+    firstName: "charbel",
+    lastName: "tannous",
+    healthInsuranceNumber: "TANC03013017",
+    sequentialNumber: "03",
+    dateOfBirth: "2003-01-30",
+    postalCode: "H4n1c7",
     searchRadius: "25", // km
     reason: "Consultation"
   },
@@ -208,27 +205,80 @@ class ElementFinder {
       // Check if element already exists
       const element = document.querySelector(selector)
       if (element) {
+        console.log(`Found element with selector ${selector} immediately`);
         resolve(element)
         return
       }
+      
+      // Try to find element in all frames
+      const frames = document.querySelectorAll('iframe');
+      for (let i = 0; i < frames.length; i++) {
+        try {
+          const frameDoc = frames[i].contentDocument || frames[i].contentWindow.document;
+          const frameElement = frameDoc.querySelector(selector);
+          if (frameElement) {
+            console.log(`Found element with selector ${selector} in iframe ${i}`);
+            resolve(frameElement);
+            return;
+          }
+        } catch (e) {
+          console.log(`Cannot access iframe ${i} content due to same-origin policy`);
+        }
+      }
 
-      let timeoutId
+      let timeoutId;
+      let checkInterval;
 
       // Create mutation observer
       const observer = new MutationObserver(() => {
         const element = document.querySelector(selector)
         if (element) {
-          clearTimeout(timeoutId)
-          observer.disconnect()
-          resolve(element)
+          clearTimeout(timeoutId);
+          clearInterval(checkInterval);
+          observer.disconnect();
+          console.log(`Found element with selector ${selector} after DOM mutation`);
+          resolve(element);
         }
-      })
+      });
+
+      // Also check periodically in case mutation observer misses something
+      checkInterval = setInterval(() => {
+        const element = document.querySelector(selector);
+        if (element) {
+          clearTimeout(timeoutId);
+          clearInterval(checkInterval);
+          observer.disconnect();
+          console.log(`Found element with selector ${selector} during interval check`);
+          resolve(element);
+          return;
+        }
+        
+        // Check iframes again
+        for (let i = 0; i < frames.length; i++) {
+          try {
+            const frameDoc = frames[i].contentDocument || frames[i].contentWindow.document;
+            const frameElement = frameDoc.querySelector(selector);
+            if (frameElement) {
+              clearTimeout(timeoutId);
+              clearInterval(checkInterval);
+              observer.disconnect();
+              console.log(`Found element with selector ${selector} in iframe ${i} during interval check`);
+              resolve(frameElement);
+              return;
+            }
+          } catch (e) {
+            // Ignore same-origin errors
+          }
+        }
+      }, 1000);
 
       // Set timeout for rejection
       timeoutId = setTimeout(() => {
-        observer.disconnect()
-        reject(new Error(`Element ${selector} not found within ${timeout}ms`))
-      }, timeout)
+        observer.disconnect();
+        clearInterval(checkInterval);
+        console.log(`Element ${selector} not found within ${timeout}ms`);
+        reject(new Error(`Element ${selector} not found within ${timeout}ms`));
+      }, timeout);
 
       // Start observing with all possible mutation types
       observer.observe(document.body, {
@@ -236,8 +286,8 @@ class ElementFinder {
         subtree: true,
         attributes: true,
         characterData: true
-      })
-    })
+      });
+    });
   }
 
   static findElementByText(elementType, textContent, timeout = 30000) {
@@ -424,11 +474,10 @@ class AppointmentAutomation {
   constructor(config) {
     this.config = config;
     this.currentStep = 0;
+    // Removed the clickScheduleAppointment steps as we now auto-run on page load
     this.steps = [
-      this.clickScheduleAppointment,
       this.fillPersonalInfo,
       this.clickContinue,
-      this.clickScheduleAppointment,
       this.fillSearchParameters,
       this.searchForAppointment
     ];
@@ -462,16 +511,6 @@ class AppointmentAutomation {
     }
   }
   
-  async clickScheduleAppointment() {
-    this.logger.info("Looking for appointment button...");
-    const button = await ElementFinder.findElement(this.config.selectors.scheduleAppointment);
-    this.logger.info("Appointment button found, clicking...");
-    button.click();
-    
-    await ElementFinder.waitForNetworkIdle();
-    this.logger.success("Navigated to next page");
-  }
-  
   async fillPersonalInfo() {
     this.logger.info("Filling personal information form...");
     
@@ -487,7 +526,7 @@ class AppointmentAutomation {
     );
     
     await ElementFinder.fillInput(
-      this.config.selectors.formFields.healthNumber, 
+      this.config.selectors.formFields.healthInsuranceNumber, 
       this.config.appointmentData.healthInsuranceNumber
     );
     
@@ -496,13 +535,29 @@ class AppointmentAutomation {
       this.config.appointmentData.sequentialNumber
     );
     
-    await ElementFinder.fillInput(
-      this.config.selectors.formFields.dateOfBirth, 
-      this.config.appointmentData.dateOfBirth
-    );
+    // Handle date of birth fields separately
+    const dobParts = this.config.appointmentData.dateOfBirth.split('-');
+    if (dobParts.length === 3) {
+      const [year, month, day] = dobParts;
+      
+      await ElementFinder.fillInput(
+        this.config.selectors.formFields.dateOfBirthDay, 
+        day
+      );
+      
+      await ElementFinder.fillInput(
+        this.config.selectors.formFields.dateOfBirthMonth, 
+        month // The select will match by value
+      );
+      
+      await ElementFinder.fillInput(
+        this.config.selectors.formFields.dateOfBirthYear, 
+        year
+      );
+    }
     
     await ElementFinder.fillInput(
-      this.config.selectors.formFields.agreement, 
+      this.config.selectors.formFields.agreeToTerms, 
       "true" // For checkbox
     );
     
@@ -511,7 +566,7 @@ class AppointmentAutomation {
   
   async clickContinue() {
     this.logger.info("Looking for continue button...");
-    const button = await ElementFinder.findElement(this.config.selectors.continueButton);
+    const button = await ElementFinder.findElement(this.config.selectors.buttons.continue);
     this.logger.info("Continue button found, clicking...");
     button.click();
     
@@ -539,7 +594,7 @@ class AppointmentAutomation {
     );
     
     await ElementFinder.fillInput(
-      this.config.selectors.formFields.reason,
+      this.config.selectors.formFields.appointmentReason,
       this.config.appointmentData.reason
     );
     
@@ -548,7 +603,7 @@ class AppointmentAutomation {
   
   async searchForAppointment() {
     this.logger.info("Clicking search button...");
-    const button = await ElementFinder.findElement(this.config.selectors.searchButton);
+    const button = await ElementFinder.findElement(this.config.selectors.buttons.search);
     button.click();
     
     await ElementFinder.waitForNetworkIdle();
@@ -560,16 +615,65 @@ class AppointmentAutomation {
 
 }
 
-// Start the automation when the extension runs
-(async function main() {
+// Function to start the automation - expose to window object
+async function startAutomation() {
   try {
-    console.log("🔄 Appointment automation extension loaded");
-    // Wait a bit to ensure the page is fully loaded
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    console.log("🔄 Starting appointment automation");
     
+    // Log the current URL to help with debugging
+    console.log("Current URL:", window.location.href);
+    
+    // Check if we're on the right page - handle URL with query parameters
+    if (!window.location.href.includes("prendrerendezvous/Principale.aspx")) {
+      console.log("Not on the appointment page yet. Please navigate to the correct page.");
+      return false;
+    }
+    
+    console.log("✅ On the correct page. URL contains 'prendrerendezvous/Principale.aspx'");
+    
+    // Wait longer to ensure the page is fully loaded
+    console.log("Waiting for page to fully load...");
+    await new Promise(resolve => setTimeout(resolve, 5000));
+    await ElementFinder.waitForPageLoad();
+    await ElementFinder.waitForNetworkIdle(10000);
+    
+    // Check if any of our target elements exist
+    const firstNameSelectors = AUTOMATION_CONFIG.selectors.formFields.firstName;
+    for (const selector of firstNameSelectors) {
+      const element = document.querySelector(selector);
+      console.log(`Checking selector ${selector}:`, element ? "FOUND" : "NOT FOUND");
+    }
+    
+    // Start the automation
+    console.log("Starting automation now...");
     const automation = new AppointmentAutomation(AUTOMATION_CONFIG);
     await automation.start();
+    return true;
   } catch (error) {
-    console.error("Extension initialization failed:", error);
+    console.error("Automation failed:", error);
+    return false;
   }
-})();
+}
+
+// In Plasmo, we need to use a different approach for message passing
+// We'll export a function that can be called from the popup
+export async function startAutomationFromPopup() {
+  console.log("startAutomationFromPopup called");
+  return await startAutomation();
+}
+
+// We're not using message passing anymore since it was causing issues
+// The automation is now triggered directly via script injection
+
+// Log when the content script is loaded
+console.log("Content Script re-injected or page loaded");
+
+// Make startAutomation available globally
+// We need to ensure this is properly exposed to the page context
+window["startAutomation"] = startAutomation;
+
+// Also expose it as a property on the document for more reliable access
+document["startAutomation"] = startAutomation;
+
+// Log that the function has been exposed
+console.log("startAutomation function has been exposed to window:", typeof window["startAutomation"] === "function");
