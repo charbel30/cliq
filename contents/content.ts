@@ -1,15 +1,17 @@
 import type { PlasmoCSConfig } from "plasmo"
 
 export const config: PlasmoCSConfig = {
-  matches: ["https://rvsq.gouv.qc.ca/prendrerendezvous/Principale.aspx?/*"],
+  matches: [
+    "https://rvsq.gouv.qc.ca/prendrerendezvous/Principale.aspx?culture=fr",
+    "https://rvsq.gouv.qc.ca/accueil/index.html",
+    "https://rvsq.gouv.qc.ca/prendrerendezvous/Principale.aspx?/*"
+  ],
   all_frames: true,
   world: "MAIN"
 }
-// go into the website  let it load  click on schedule appointement , let it load , add the inputs first name , last name , Health insurance number
-// health insurance card sequential number , date of bith , and that they agree, then click on the continue button
-// wait for the page to load , click on schedule an appointement , wait for the page to load
-// change the parameters: from this dte , postal code , search parameter and add a reason for the appointement
-// press search and find  an available appointement.
+// Automatically runs when the specified pages are loaded
+// Fills in personal information (first name, last name, health insurance number, etc.)
+// Continues to the next page, fills search parameters, and searches for available appointments
 
 const AUTOMATION_CONFIG = {
   appointmentData: {
@@ -145,8 +147,8 @@ const AUTOMATION_CONFIG = {
       ]
     },
 
-     // Error messages that could appear during the process
-     errorMessages: {
+    // Error messages that could appear during the process
+    errorMessages: {
       accessDenied: [
         ".ErrorMessage_ServicesAccessDenied:not([style*='display: none'])",
         ".ErrorMessage_ServicesAccessDenied:visible",
@@ -172,17 +174,402 @@ const AUTOMATION_CONFIG = {
         ".alert:visible",
         ".ErrorMessage_*:visible"
       ]
-    },
-    timeouts: {
-      elementWait: 30000,
-      pageTransition: 5000,
     }
-    
+  },
+  timeouts: {
+    elementWait: 30000,
+    pageTransition: 5000
   }
 }
+
+class ElementFinder {
+  static async findElement(
+    selectorOptions,
+    timeout = AUTOMATION_CONFIG.timeouts.elementWait
+  ) {
+    // try all selectors in parallel
+    const selectorpromises = selectorOptions.map((selector) =>
+      this.waitForElementWithMutationObserver(selector, timeout)
+    )
+    selectorpromises.push(
+      this.findElementByText("button", selectorOptions[0], timeout)
+    )
+
+    try {
+      return await Promise.race(selectorpromises)
+    } catch (error) {
+      console.error(`Failed to find element with selectors:`, selectorOptions)
+      throw error
+    }
+  }
+
+  static waitForElementWithMutationObserver(selector, timeout = 30000) {
+    return new Promise((resolve, reject) => {
+      // Check if element already exists
+      const element = document.querySelector(selector)
+      if (element) {
+        resolve(element)
+        return
+      }
+
+      let timeoutId
+
+      // Create mutation observer
+      const observer = new MutationObserver(() => {
+        const element = document.querySelector(selector)
+        if (element) {
+          clearTimeout(timeoutId)
+          observer.disconnect()
+          resolve(element)
+        }
+      })
+
+      // Set timeout for rejection
+      timeoutId = setTimeout(() => {
+        observer.disconnect()
+        reject(new Error(`Element ${selector} not found within ${timeout}ms`))
+      }, timeout)
+
+      // Start observing with all possible mutation types
+      observer.observe(document.body, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        characterData: true
+      })
+    })
+  }
+
+  static findElementByText(elementType, textContent, timeout = 30000) {
+    return new Promise((resolve, reject) => {
+      // Check if element already exists
+      const elements = Array.from(document.querySelectorAll(elementType));
+      const element = elements.find(el => 
+        el.textContent.trim().toLowerCase().includes(textContent.toLowerCase()));
+      
+      if (element) {
+        resolve(element);
+        return;
+      }
+      let timeoutId;
+      
+      // Create mutation observer
+      const observer = new MutationObserver(() => {
+        const elements = Array.from(document.querySelectorAll(elementType));
+        const element = elements.find(el => 
+          el.textContent.trim().toLowerCase().includes(textContent.toLowerCase()));
+        
+        if (element) {
+          clearTimeout(timeoutId);
+          observer.disconnect();
+          resolve(element);
+        }
+      });
+      
+      // Set timeout for rejection
+      timeoutId = setTimeout(() => {
+        observer.disconnect();
+        reject(new Error(`${elementType} with text "${textContent}" not found within ${timeout}ms`));
+      }, timeout);
+      
+      // Start observing
+      observer.observe(document.body, {
+        childList: true,
+        subtree: true,
+        characterData: true
+      });
+    });
+  }
+  
+
+
+  static async fillInput(fieldSelectors, value) {
+    const input = await this.findElement(fieldSelectors);
+    
+    // Handle different input types appropriately
+    if (input.type === 'checkbox') {
+      if (!input.checked) input.click();
+    } else if (input.tagName === 'SELECT') {
+      // Handle dropdown selection
+      const option = Array.from(input.options).find((opt: HTMLOptionElement) => 
+        opt.text.toLowerCase().includes(value.toLowerCase()) || 
+        opt.value.toLowerCase().includes(value.toLowerCase())
+      );
+      
+      if (option) {
+        (input as HTMLSelectElement).value = (option as HTMLOptionElement).value;
+        // Trigger change event
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+    } else {
+      // Text inputs, date inputs, etc.
+      input.value = value;
+      // Trigger input and change events to activate any listeners
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    
+    return input;
+  }
+
+
+  static async waitForUrlChange(timeout = AUTOMATION_CONFIG.timeouts.pageTransition) {
+    return new Promise((resolve, reject) => {
+      const startUrl = window.location.href;
+      let intervalId;
+      let timeoutId;
+      
+      intervalId = setInterval(() => {
+        if (window.location.href !== startUrl) {
+          clearInterval(intervalId);
+          clearTimeout(timeoutId);
+          // Add small delay to ensure page is loaded
+          setTimeout(resolve, 1000);
+        }
+      }, 100);
+      
+      timeoutId = setTimeout(() => {
+        clearInterval(intervalId);
+        reject(new Error(`URL did not change within ${timeout}ms`));
+      }, timeout);
+    });
+  }
+
+  static async waitForPageLoad() {
+    if (document.readyState === 'complete') return;
+    
+    return new Promise<void>(resolve => {
+      window.addEventListener('load', () => resolve(), { once: true });
+    });
+  }
+  
+  static async waitForNetworkIdle(timeout = 5000) {
+    return new Promise<void>(resolve => {
+      let lastActivity = Date.now();
+      let requestCount = 0;
+      let timeoutId;
+      
+      const originalXHROpen = XMLHttpRequest.prototype.open;
+      const originalFetch = window.fetch;
+      
+      // Patch XHR
+      XMLHttpRequest.prototype.open = function() {
+        requestCount++;
+        lastActivity = Date.now();
+        
+        this.addEventListener('loadend', () => {
+          requestCount--;
+          lastActivity = Date.now();
+        });
+        
+        return originalXHROpen.apply(this, arguments);
+      };
+      
+      // Patch fetch
+      window.fetch = function() {
+        requestCount++;
+        lastActivity = Date.now();
+        
+        const promise = originalFetch.apply(this, arguments);
+        promise.then(() => {
+          requestCount--;
+          lastActivity = Date.now();
+        }).catch(() => {
+          requestCount--;
+          lastActivity = Date.now();
+        });
+        
+        return promise;
+      };
+      
+      const checkIdle = () => {
+        const idleTime = Date.now() - lastActivity;
+        if (requestCount === 0 && idleTime > 500) {
+          // Network has been idle for more than 500ms
+          clearInterval(intervalId);
+          
+          // Restore originals
+          XMLHttpRequest.prototype.open = originalXHROpen;
+          window.fetch = originalFetch;
+          
+          resolve();
+          return;
+        }
+      };
+      
+      const intervalId = setInterval(checkIdle, 100);
+      
+      // Maximum wait time
+      setTimeout(() => {
+        clearInterval(intervalId);
+        XMLHttpRequest.prototype.open = originalXHROpen;
+        window.fetch = originalFetch;
+        resolve();
+      }, timeout);
+    });
+  }
+
+  
+}
 /**
- * Advanced Element Finder with multiple strategies
- * Uses a combination of selectors, text content, and attributes
+ * Main automation class
  */
+class AppointmentAutomation {
+  config: any;
+  currentStep: number;
+  steps: Array<() => Promise<void>>;
 
+  logger: any;
 
+  constructor(config) {
+    this.config = config;
+    this.currentStep = 0;
+    this.steps = [
+      this.clickScheduleAppointment,
+      this.fillPersonalInfo,
+      this.clickContinue,
+      this.clickScheduleAppointment,
+      this.fillSearchParameters,
+      this.searchForAppointment
+    ];
+    
+    // Use a more advanced logging system
+    this.logger = {
+      info: (msg) => console.log(`[AppointBot] ${msg}`),
+      error: (msg, error) => console.error(`[AppointBot] ${msg}`, error),
+      warn: (msg) => console.warn(`[AppointBot] ${msg}`),
+      success: (msg) => console.log(`[AppointBot] ✓ ${msg}`)
+    };
+  }
+  
+  async start() {
+    this.logger.info("Starting automation sequence");
+    
+    try {
+      // Wait for initial page load
+      await ElementFinder.waitForPageLoad();
+      await ElementFinder.waitForNetworkIdle();
+      
+      // Run through each step
+      for (this.currentStep = 0; this.currentStep < this.steps.length; this.currentStep++) {
+        const step = this.steps[this.currentStep];
+        await step.call(this);
+      }
+      
+      this.logger.success("Automation complete! Found available appointment.");
+    } catch (error) {
+      this.logger.error(`Automation failed at step ${this.currentStep + 1}:`, error);
+    }
+  }
+  
+  async clickScheduleAppointment() {
+    this.logger.info("Looking for appointment button...");
+    const button = await ElementFinder.findElement(this.config.selectors.scheduleAppointment);
+    this.logger.info("Appointment button found, clicking...");
+    button.click();
+    
+    await ElementFinder.waitForNetworkIdle();
+    this.logger.success("Navigated to next page");
+  }
+  
+  async fillPersonalInfo() {
+    this.logger.info("Filling personal information form...");
+    
+    // Fill each field
+    await ElementFinder.fillInput(
+      this.config.selectors.formFields.firstName, 
+      this.config.appointmentData.firstName
+    );
+    
+    await ElementFinder.fillInput(
+      this.config.selectors.formFields.lastName, 
+      this.config.appointmentData.lastName
+    );
+    
+    await ElementFinder.fillInput(
+      this.config.selectors.formFields.healthNumber, 
+      this.config.appointmentData.healthInsuranceNumber
+    );
+    
+    await ElementFinder.fillInput(
+      this.config.selectors.formFields.sequentialNumber, 
+      this.config.appointmentData.sequentialNumber
+    );
+    
+    await ElementFinder.fillInput(
+      this.config.selectors.formFields.dateOfBirth, 
+      this.config.appointmentData.dateOfBirth
+    );
+    
+    await ElementFinder.fillInput(
+      this.config.selectors.formFields.agreement, 
+      "true" // For checkbox
+    );
+    
+    this.logger.success("Personal information filled");
+  }
+  
+  async clickContinue() {
+    this.logger.info("Looking for continue button...");
+    const button = await ElementFinder.findElement(this.config.selectors.continueButton);
+    this.logger.info("Continue button found, clicking...");
+    button.click();
+    
+    // Wait for URL to change or page to update
+    await Promise.race([
+      ElementFinder.waitForUrlChange(),
+      ElementFinder.waitForNetworkIdle()
+    ]);
+    
+    this.logger.success("Continued to next page");
+  }
+  
+  async fillSearchParameters() {
+    this.logger.info("Filling search parameters...");
+    
+    // Fill search parameters
+    await ElementFinder.fillInput(
+      this.config.selectors.formFields.postalCode,
+      this.config.appointmentData.postalCode
+    );
+    
+    await ElementFinder.fillInput(
+      this.config.selectors.formFields.searchRadius,
+      this.config.appointmentData.searchRadius
+    );
+    
+    await ElementFinder.fillInput(
+      this.config.selectors.formFields.reason,
+      this.config.appointmentData.reason
+    );
+    
+    this.logger.success("Search parameters filled");
+  }
+  
+  async searchForAppointment() {
+    this.logger.info("Clicking search button...");
+    const button = await ElementFinder.findElement(this.config.selectors.searchButton);
+    button.click();
+    
+    await ElementFinder.waitForNetworkIdle();
+    this.logger.success("Search completed, checking for available appointments...");
+    
+    // Additional logic to find available appointments would go here
+    // This would depend on how the site displays availability
+  }
+
+}
+
+// Start the automation when the extension runs
+(async function main() {
+  try {
+    console.log("🔄 Appointment automation extension loaded");
+    // Wait a bit to ensure the page is fully loaded
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    
+    const automation = new AppointmentAutomation(AUTOMATION_CONFIG);
+    await automation.start();
+  } catch (error) {
+    console.error("Extension initialization failed:", error);
+  }
+})();
