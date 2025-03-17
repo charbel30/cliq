@@ -5,14 +5,14 @@
 export const AUTOMATION_CONFIG = {
   // User-configurable appointment data
   appointmentData: {
-    firstName: "charbel",
-    lastName: "tannous",
-    healthInsuranceNumber: "TANC03013017",
-    sequentialNumber: "03",
-    dateOfBirth: "2003-01-30",
-    postalCode: "H4n1c7",
-    searchRadius: "25", // km
-    reason: "Consultation"
+    firstName: "FIRST_NAME_PLACEHOLDER",
+    lastName: "LAST_NAME_PLACEHOLDER",
+    healthInsuranceNumber: "HEALTH_INSURANCE_NUMBER_PLACEHOLDER",
+    sequentialNumber: "SEQUENTIAL_NUMBER_PLACEHOLDER",
+    dateOfBirth: "DATE_OF_BIRTH_PLACEHOLDER",
+    postalCode: "POSTAL_CODE_PLACEHOLDER",
+    searchRadius: "SEARCH_RADIUS_PLACEHOLDER", // km
+    reason: "REASON_PLACEHOLDER"
   },
 
   // Search behavior configuration
