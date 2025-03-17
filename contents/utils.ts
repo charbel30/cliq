@@ -229,7 +229,7 @@ export class ElementFinder {
           clearInterval(intervalId);
           clearTimeout(timeoutId);
           // Add small delay to ensure page is loaded
-          setTimeout(resolve, 1000);
+          setTimeout(resolve, 2000);
         }
       }, 100);
       
